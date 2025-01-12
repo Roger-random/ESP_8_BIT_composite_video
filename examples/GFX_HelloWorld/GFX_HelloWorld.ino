@@ -35,7 +35,7 @@ SOFTWARE.
 
 */
 
-#include <ESP_8_BIT_GFX.h>
+#include "ESP_8_BIT_GFX.h"
 
 // A list of 8-bit color values that work well in a cycle.
 uint8_t colorCycle[] = {
@@ -61,7 +61,7 @@ uint8_t colorCycle[] = {
 };
 
 // Create an instance of the graphics library
-ESP_8_BIT_GFX videoOut(true /* = NTSC */, 8 /* = RGB332 color */);
+ESP_8_BIT_GFX videoOut(false /* = NTSC */, 8 /* = RGB332 color */);
 
 void setup() {
   // Initial setup of graphics library
@@ -86,7 +86,7 @@ void loop() {
   uint8_t invertC = 0xFF-cycle;
 
   // Clear screen
-  videoOut.fillScreen(0);
+  videoOut.fillScreen(10);
 
   // Draw one rectangle
   videoOut.drawLine(movingX, 0,       255,     movingY, cycle);
