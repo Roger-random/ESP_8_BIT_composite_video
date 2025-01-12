@@ -42,7 +42,7 @@ void IRAM_ATTR video_isr(volatile void* buf);
 void IRAM_ATTR i2s_intr_handler_video(void *arg)
 {
     if (I2S0.int_st.out_eof)
-        video_isr(((lldesc_t*)I2S0.out_eof_des_addr)->buf); // get the next line of video
+        video_isr((volatile void*)((lldesc_t*)I2S0.out_eof_des_addr)->buf); // get the next line of video
     I2S0.int_clr.val = I2S0.int_st.val;                     // reset the interrupt
 }
 
@@ -97,13 +97,14 @@ static esp_err_t start_dma(int line_width,int samples_per_cc, int ch = 1)
     //  up to 20mhz seems to work ok:
     //  rtc_clk_apll_enable(1,0x00,0x00,0x4,0);   // 20mhz for fancy DDS
 
+    rtc_clk_apll_enable(1);
     if (!_pal_) {
         switch (samples_per_cc) {
-            case 3: rtc_clk_apll_enable(1,0x46,0x97,0x4,2);   break;    // 10.7386363636 3x NTSC (10.7386398315mhz)
-            case 4: rtc_clk_apll_enable(1,0x46,0x97,0x4,1);   break;    // 14.3181818182 4x NTSC (14.3181864421mhz)
+            case 3: rtc_clk_apll_coeff_set(2,0x46,0x97,0x4);   break;    // 10.7386363636 3x NTSC (10.7386398315mhz)
+            case 4: rtc_clk_apll_coeff_set(1,0x46,0x97,0x4);   break;    // 14.3181818182 4x NTSC (14.3181864421mhz)
         }
     } else {
-        rtc_clk_apll_enable(1,0x04,0xA4,0x6,1);     // 17.734476mhz ~4x PAL
+        rtc_clk_apll_coeff_set(1,0x04,0xA4,0x6);     // 17.734476mhz ~4x PAL
     }
 
     I2S0.clkm_conf.clkm_div_num = 1;            // I2S clock divider’s integral value.
@@ -137,8 +138,10 @@ void video_init_hw(int line_width, int samples_per_cc)
 //====================================================================================================
 
 
-// ntsc phase representation of a rrrgggbb pixel
+// DC + amplitude + phase patterns of an rrrgggbb pixel
 // must be in RAM so VBL works
+
+// NTSC
 const static DRAM_ATTR uint32_t ntsc_RGB332[256] = {
     0x18181818,0x18171A1C,0x1A151D22,0x1B141F26,0x1D1C1A1B,0x1E1B1C20,0x20191F26,0x2119222A,
     0x23201C1F,0x241F1E24,0x251E222A,0x261D242E,0x29241F23,0x2A232128,0x2B22242E,0x2C212632,
@@ -174,7 +177,7 @@ const static DRAM_ATTR uint32_t ntsc_RGB332[256] = {
     0x3F473E36,0x4046403A,0x41454440,0x42444644,0x454C413A,0x464B433E,0x47494644,0x49494949,
 };
 
-// PAL yuyv palette, must be in RAM
+// PAL
 const static DRAM_ATTR uint32_t pal_yuyv[] = {
     0x18181818,0x1A16191E,0x1E121A26,0x21101A2C,0x1E1D1A1B,0x211B1A20,0x25171B29,0x27151C2E,
     0x25231B1E,0x27201C23,0x2B1D1D2B,0x2E1A1E31,0x2B281D20,0x2E261E26,0x31221F2E,0x34202034,
@@ -334,6 +337,7 @@ void video_init(int samples_per_cc, int ntsc)
 {
     _samples_per_cc = samples_per_cc;
 
+    printf("ntsc:%i\n",ntsc);
     if (ntsc) {
         _sample_rate = 315.0/88 * samples_per_cc;   // DAC rate
         _line_width = NTSC_COLOR_CLOCKS_PER_SCANLINE*samples_per_cc;
@@ -344,6 +348,7 @@ void video_init(int samples_per_cc, int ntsc)
         _palette = ntsc_RGB332;
         _pal_ = 0;
     } else {
+
         pal_init();
         _palette = pal_yuyv;
         _pal_ = 1;
@@ -368,7 +373,7 @@ void pal_init()
     _hsync = usec(4.7);
     _burst_start = usec(5.6);
     _burst_width = (int)(10*cc_width + 4) & 0xFFFE;
-    _active_start = usec(10.4);
+    _active_start = usec(10.4 - 1.1);
 
     // make colorburst tables for even and odd lines
     _burst0 = new int16_t[_burst_width];
@@ -683,9 +688,9 @@ ESP_8_BIT_composite::~ESP_8_BIT_composite()
     dac_i2s_disable();
     dac_output_disable(DAC_CHANNEL_1);
     if (!_pal_) {
-        rtc_clk_apll_enable(false,0x46,0x97,0x4,1);
+        rtc_clk_apll_enable(false);
     } else {
-        rtc_clk_apll_enable(false,0x04,0xA4,0x6,1);
+        rtc_clk_apll_enable(false);
     }
     for (int i = 0; i < 2; i++) {
       heap_caps_free((void*)(_dma_desc[i].buf));
@@ -737,6 +742,8 @@ void ESP_8_BIT_composite::begin()
   _swapCompleteNotify = xTaskGetCurrentTaskHandle();
 
   // Start video signal generator
+  printf("_pal_:%i\n",_pal_);
+
   video_init(4, !_pal_);
 }
 
